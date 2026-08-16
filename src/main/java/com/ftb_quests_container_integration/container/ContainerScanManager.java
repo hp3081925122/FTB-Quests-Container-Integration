@@ -26,7 +26,7 @@ public final class ContainerScanManager {
     private ContainerScanManager() {
     }
 
-    // 推进两个可选容器集成，并在服务端 tick 末尾合并处理检测请求。
+    // 推进三个可选存储集成，并在服务端 tick 末尾合并处理检测请求。
     public static void tick(MinecraftServer server) {
         if (SophisticatedBackpacksProvider.isAvailable()) {
             SophisticatedBackpacksProvider.tick(server);
@@ -34,12 +34,20 @@ public final class ContainerScanManager {
 
         RefinedStorageProvider.tick(server);
 
+        AppliedEnergistics2Provider.tick(server);
+
         processPendingDetections(server);
     }
 
-    // Grid 菜单打开时绑定对应 RS 网络或便携存储来源。
+    // Grid 菜单打开时绑定对应 RS 或 AE2 网络及便携存储来源。
     public static void onContainerOpen(ServerPlayer player, AbstractContainerMenu menu) {
         RefinedStorageProvider.onContainerOpen(player, menu);
+        AppliedEnergistics2Provider.onContainerOpen(player, menu);
+    }
+
+    // 转发容器关闭事件，停止 AE2 网络 watcher。
+    public static void onContainerClose(ServerPlayer player, AbstractContainerMenu menu) {
+        AppliedEnergistics2Provider.onContainerClose(player, menu);
     }
 
     // 请求在当前服务端 tick 统一重新检测玩家任务，避免事件风暴。
@@ -66,17 +74,19 @@ public final class ContainerScanManager {
         }
     }
 
-    // 合并两种容器缓存，作为本次 FTB Quests 库存汇总的附加物品。
+    // 合并便携容器、RS 和 AE2 缓存，作为本次 FTB Quests 库存汇总的附加物品。
     private static List<ItemStack> buildContainerSnapshot(ServerPlayer player) {
         List<ItemStack> snapshot = new ArrayList<>();
         snapshot.addAll(SophisticatedBackpacksProvider.getCachedStacks(player));
         snapshot.addAll(RefinedStorageProvider.getCachedStacks(player));
+        snapshot.addAll(AppliedEnergistics2Provider.getCachedStacks(player));
         return snapshot;
     }
 
-    // 从真实精妙背包处理器和 RS 存储 API 中按实际数量消耗物品。
+    // 从真实精妙背包、RS 或 AE2 存储 API 中按实际数量消耗物品。
     public static void consumeMatching(ItemTask task, TeamData teamData, ServerPlayer player, ItemStack craftedItem) {
-        if ((!Config.consumeFromContainers && !Config.consumeFromRefinedStorage)
+        if ((!Config.consumeFromContainers && !Config.consumeFromRefinedStorage
+                && !Config.consumeFromAppliedEnergistics2)
                 || !craftedItem.isEmpty()
                 || !task.consumesResources()
                 || teamData.isCompleted(task)) {
@@ -98,6 +108,15 @@ public final class ContainerScanManager {
 
         if (remaining > 0L) {
             consumed = RefinedStorageProvider.consumeMatching(task, player, remaining);
+            if (consumed > 0L) {
+                changed = true;
+                teamData.addProgress(task, consumed);
+                remaining -= consumed;
+            }
+        }
+
+        if (remaining > 0L) {
+            consumed = AppliedEnergistics2Provider.consumeMatching(task, player, remaining);
             if (consumed > 0L) {
                 changed = true;
                 teamData.addProgress(task, consumed);
@@ -129,7 +148,7 @@ public final class ContainerScanManager {
         }
     }
 
-    // 删除指定玩家的两种容器缓存和待处理检测请求。
+    // 删除指定玩家的容器、RS 和 AE2 缓存及待处理检测请求。
     public static void removePlayer(Player player) {
         if (player == null) {
             return;
@@ -139,6 +158,7 @@ public final class ContainerScanManager {
         if (player instanceof ServerPlayer serverPlayer) {
             SophisticatedBackpacksProvider.removePlayer(serverPlayer);
             RefinedStorageProvider.removePlayer(serverPlayer);
+            AppliedEnergistics2Provider.removePlayer(serverPlayer);
         }
     }
 
@@ -147,6 +167,7 @@ public final class ContainerScanManager {
         PENDING_DETECTIONS.clear();
         SophisticatedBackpacksProvider.clear();
         RefinedStorageProvider.clear();
+        AppliedEnergistics2Provider.clear();
         ACTIVE_SNAPSHOT.remove();
         DETECTING.remove();
     }

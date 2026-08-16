@@ -38,6 +38,14 @@ public final class Ftb_quests_container_integration {
         }
     }
 
+    // 监听玩家关闭容器事件，用于销毁 AE2 网络 watcher。
+    @SubscribeEvent
+    public void onContainerClose(PlayerContainerEvent.Close event) {
+        if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
+            ContainerScanManager.onContainerClose(player, event.getContainer());
+        }
+    }
+
     // 负责清理退出玩家的扫描状态，避免跨玩家复用快照。
     @SubscribeEvent
     public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
