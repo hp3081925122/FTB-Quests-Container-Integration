@@ -1,0 +1,19 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.ftb_quests_container_integration.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "ftb_quests_container_integration.refmap.json",
+  "mixins": [
+    "FTBQuestsInventoryListenerMixin",
+    "ItemTaskMixin"
+  ],
+  "client": [
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}
