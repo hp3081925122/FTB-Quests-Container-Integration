@@ -1,7 +1,6 @@
 package com.ftb_quests_container_integration.container;
 
 import com.ftb_quests_container_integration.Config;
-import com.mojang.logging.LogUtils;
 import dev.ftb.mods.ftbquests.quest.task.ItemTask;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -23,12 +22,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-import org.slf4j.Logger;
-
 // 负责把 Sophisticated Backpacks 内容转换为事件驱动的玩家缓存。
 final class SophisticatedBackpacksIntegration {
-    // 记录顶层背包来源失效事件，便于核对缓存撤销时机。
-    private static final Logger LOGGER = LogUtils.getLogger();
     private static final Map<UUID, PlayerCache> PLAYERS = new HashMap<>();
 
     private SophisticatedBackpacksIntegration() {
@@ -149,7 +144,6 @@ final class SophisticatedBackpacksIntegration {
                 for (Map.Entry<String, BackpackBinding> entry : new ArrayList<>(roots.entrySet())) {
                     ItemStack current = currentRoots.get(entry.getKey());
                     if (current == null || !entry.getValue().isSameSource(current)) {
-                        LOGGER.debug("Removing stale Sophisticated Backpacks binding for player {}", player.getGameProfile().getName());
                         roots.remove(entry.getKey());
                         removeBinding(entry.getValue());
                     }

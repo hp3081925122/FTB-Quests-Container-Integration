@@ -1,7 +1,6 @@
 package com.ftb_quests_container_integration.container;
 
 import com.ftb_quests_container_integration.Config;
-import com.mojang.logging.LogUtils;
 import com.refinedmods.refinedstorage.RS;
 import com.refinedmods.refinedstorage.api.network.INetwork;
 import com.refinedmods.refinedstorage.api.network.grid.IGrid;
@@ -33,13 +32,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-import org.slf4j.Logger;
-
 // 负责绑定 Refined Storage Grid，并维护玩家当前绑定存储的物品缓存。
 final class RefinedStorageIntegration {
     private static final String MOD_ID = "refinedstorage";
-    // 记录绑定失效和重建事件，便于定位服务端缓存生命周期问题。
-    private static final Logger LOGGER = LogUtils.getLogger();
     private static final Map<UUID, Binding> BINDINGS = new HashMap<>();
 
     private RefinedStorageIntegration() {
@@ -64,6 +59,8 @@ final class RefinedStorageIntegration {
         Binding oldBinding = BINDINGS.get(player.getUUID());
         if (oldBinding != null && oldBinding.isSameSource(newBinding)) {
             newBinding.close();
+            // 任务可能在缓存建立后才开始，重新打开同一 Grid 时补发一次检测请求。
+            ContainerScanManager.requestDetection(player);
             return;
         }
 
@@ -85,7 +82,6 @@ final class RefinedStorageIntegration {
 
             // 便携 Grid 被移走后立即撤销绑定，避免继续读取脱离玩家物品栏的旧存储。
             if (!entry.getValue().isSourcePresent()) {
-                LOGGER.debug("Removing stale portable Refined Storage binding for player {}", player.getGameProfile().getName());
                 entry.getValue().close();
                 ContainerScanManager.requestDetection(player);
                 return true;
@@ -418,7 +414,6 @@ final class RefinedStorageIntegration {
         @Override
         public void onInvalidated() {
             // 重新建立分批扫描队列，避免缓存重建后永久停留在未完成状态。
-            LOGGER.debug("Refined Storage cache invalidated; restarting scan for player {}", binding.player.getGameProfile().getName());
             binding.startScan();
             ContainerScanManager.requestDetection(binding.player);
         }
