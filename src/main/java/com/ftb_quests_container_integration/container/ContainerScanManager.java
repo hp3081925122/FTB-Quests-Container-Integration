@@ -39,14 +39,15 @@ public final class ContainerScanManager {
         processPendingDetections(server);
     }
 
-    // Grid 菜单打开时绑定对应 RS 或 AE2 网络及便携存储来源。
+    // Grid 菜单打开时绑定便携或远程 RS，以及 AE2 便携存储来源。
     public static void onContainerOpen(ServerPlayer player, AbstractContainerMenu menu) {
         RefinedStorageProvider.onContainerOpen(player, menu);
         AppliedEnergistics2Provider.onContainerOpen(player, menu);
     }
 
-    // 转发容器关闭事件，停止 AE2 网络 watcher。
+    // 转发容器关闭事件，解除 RS 和 AE2 当前存储绑定。
     public static void onContainerClose(ServerPlayer player, AbstractContainerMenu menu) {
+        RefinedStorageProvider.onContainerClose(player, menu);
         AppliedEnergistics2Provider.onContainerClose(player, menu);
     }
 

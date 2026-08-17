@@ -30,7 +30,7 @@ public final class Ftb_quests_container_integration {
         }
     }
 
-    // 监听玩家打开容器事件，用于绑定 Refined Storage Grid 来源。
+    // 监听玩家打开容器事件，用于绑定便携 Refined Storage Grid 来源。
     @SubscribeEvent
     public void onContainerOpen(PlayerContainerEvent.Open event) {
         if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
@@ -38,7 +38,7 @@ public final class Ftb_quests_container_integration {
         }
     }
 
-    // 监听玩家关闭容器事件，用于销毁 AE2 网络 watcher。
+    // 监听玩家关闭容器事件，用于清理便携存储绑定。
     @SubscribeEvent
     public void onContainerClose(PlayerContainerEvent.Close event) {
         if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {

@@ -20,14 +20,14 @@ final class AppliedEnergistics2Provider {
         return Config.enableAppliedEnergistics2 && ModList.get().isLoaded("ae2");
     }
 
-    // AE2 存储菜单打开时绑定网络来源。
+    // AE2 菜单打开时绑定便携存储来源。
     static void onContainerOpen(ServerPlayer player, AbstractContainerMenu menu) {
         if (isAvailable()) {
             AppliedEnergistics2Integration.onContainerOpen(player, menu);
         }
     }
 
-    // AE2 存储菜单关闭时解除对应网络 watcher。
+    // AE2 菜单关闭时解除便携存储绑定。
     static void onContainerClose(ServerPlayer player, AbstractContainerMenu menu) {
         if (isAvailable()) {
             AppliedEnergistics2Integration.onContainerClose(player, menu);

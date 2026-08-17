@@ -45,7 +45,7 @@ final class RefinedStorageIntegration {
         return Config.enableRefinedStorage && ModList.get().isLoaded(MOD_ID);
     }
 
-    // 玩家打开 Grid 菜单时绑定网络或便携存储，已有同一来源的扫描不会重复创建。
+    // 玩家打开 Grid 菜单时绑定便携或远程网络来源，普通方块终端不触发绑定。
     static void onContainerOpen(ServerPlayer player, AbstractContainerMenu menu) {
         if (!isAvailable() || !(menu instanceof GridContainerMenu gridMenu)) {
             return;
@@ -55,9 +55,11 @@ final class RefinedStorageIntegration {
         if (newBinding == null) {
             return;
         }
+        newBinding.menu = menu;
 
         Binding oldBinding = BINDINGS.get(player.getUUID());
         if (oldBinding != null && oldBinding.isSameSource(newBinding)) {
+            oldBinding.menu = menu;
             newBinding.close();
             // 任务可能在缓存建立后才开始，重新打开同一 Grid 时补发一次检测请求。
             ContainerScanManager.requestDetection(player);
@@ -71,7 +73,7 @@ final class RefinedStorageIntegration {
         newBinding.startScan();
     }
 
-    // 每个服务端 tick 固定推进每位玩家的 RS 初始缓存扫描。
+    // 每个服务端 tick 固定推进每位玩家的 RS 缓存扫描。
     static void tick(MinecraftServer server) {
         BINDINGS.entrySet().removeIf(entry -> {
             ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
@@ -80,7 +82,7 @@ final class RefinedStorageIntegration {
                 return true;
             }
 
-            // 便携 Grid 被移走后立即撤销绑定，避免继续读取脱离玩家物品栏的旧存储。
+            // 便携 Grid 被移走后立即撤销绑定，远程网络绑定则由容器关闭事件解除。
             if (!entry.getValue().isSourcePresent()) {
                 entry.getValue().close();
                 ContainerScanManager.requestDetection(player);
@@ -96,6 +98,16 @@ final class RefinedStorageIntegration {
     static List<ItemStack> getCachedStacks(ServerPlayer player) {
         Binding binding = BINDINGS.get(player.getUUID());
         return binding == null ? List.of() : binding.getCachedStacks();
+    }
+
+    // 玩家关闭当前绑定来源的 Grid 菜单时解除存储监听器。
+    static void onContainerClose(ServerPlayer player, AbstractContainerMenu menu) {
+        Binding binding = BINDINGS.get(player.getUUID());
+        if (binding != null && binding.menu == menu) {
+            BINDINGS.remove(player.getUUID());
+            binding.close();
+            ContainerScanManager.requestDetection(player);
+        }
     }
 
     // 删除指定玩家的 RS 绑定和缓存监听器。
@@ -143,36 +155,36 @@ final class RefinedStorageIntegration {
         BINDINGS.clear();
     }
 
-    // 创建普通网络、无线网络或便携 Grid 的绑定对象。
+    // 只创建便携 Grid 或主动打开的远程网络绑定，普通方块终端不创建绑定。
     private static Binding createBinding(ServerPlayer player, IGrid grid) {
-        if (grid instanceof IPortableGrid portableGrid) {
-            IStorageCache<ItemStack> cache = portableGrid.getItemCache();
-            IStorageDisk<ItemStack> storage = portableGrid.getItemStorage();
-            if (cache == null || storage == null) {
-                return null;
+        if (!(grid instanceof IPortableGrid portableGrid)) {
+            if (grid instanceof INetworkAwareGrid networkAwareGrid) {
+                INetwork network = networkAwareGrid.getNetwork();
+                if (network == null) {
+                    return null;
+                }
+
+                IStorageCache<ItemStack> cache = network.getItemStorageCache();
+                if (cache == null) {
+                    return null;
+                }
+                return Binding.forNetwork(player, grid, network, cache);
             }
-            return Binding.forPortable(player, grid, portableGrid, cache, storage);
+            return null;
         }
 
-        if (grid instanceof INetworkAwareGrid networkAwareGrid) {
-            INetwork network = networkAwareGrid.getNetwork();
-            if (network == null) {
-                return null;
-            }
-
-            IStorageCache<ItemStack> cache = network.getItemStorageCache();
-            if (cache == null) {
-                return null;
-            }
-            return Binding.forNetwork(player, grid, network, cache);
+        IStorageCache<ItemStack> cache = portableGrid.getItemCache();
+        IStorageDisk<ItemStack> storage = portableGrid.getItemStorage();
+        if (cache == null || storage == null) {
+            return null;
         }
-
-        return null;
+        return Binding.forPortable(player, grid, portableGrid, cache, storage);
     }
 
     // 保存玩家绑定来源、增量监听器和分批扫描状态。
     private static final class Binding {
         final ServerPlayer player;
+        AbstractContainerMenu menu;
         final IGrid grid;
         final IStorageCache<ItemStack> cache;
         final INetwork network;
@@ -189,7 +201,7 @@ final class RefinedStorageIntegration {
         boolean scanning;
         boolean closed;
 
-        // 创建普通网络或无线网络绑定。
+        // 创建远程网络绑定。
         static Binding forNetwork(ServerPlayer player, IGrid grid, INetwork network, IStorageCache<ItemStack> cache) {
             return new Binding(player, grid, cache, network, null, null, -1, null);
         }
@@ -259,7 +271,7 @@ final class RefinedStorageIntegration {
             }
         }
 
-        // 判断两个绑定是否指向同一个网络或同一个玩家物品栏槽位中的便携 Grid。
+        // 判断两个绑定是否指向同一个远程网络或同一个便携 Grid 来源。
         boolean isSameSource(Binding other) {
             if (network != null || other.network != null) {
                 return network != null && network == other.network;
@@ -277,7 +289,7 @@ final class RefinedStorageIntegration {
                 return true;
             }
             if (portableStackReference == null) {
-                return false;
+                return true;
             }
             for (ItemStack stack : player.getInventory().items) {
                 if (stack == portableStackReference) {
@@ -331,7 +343,7 @@ final class RefinedStorageIntegration {
             return extractFromPortableGrid(player, stack, amount);
         }
 
-        // 从普通或无线网络抽取，并同步无线 Grid 的能源和存储追踪。
+        // 从主动打开的远程网络抽取，并同步权限、追踪器和无线终端能量。
         private ItemStack extractFromNetwork(ServerPlayer player, ItemStack stack, int amount) {
             if (!network.canRun() || !network.getSecurityManager().hasPermission(Permission.EXTRACT, player)) {
                 return ItemStack.EMPTY;

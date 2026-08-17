@@ -15,9 +15,9 @@ public final class Config {
             .comment("启用 Sophisticated Backpacks 内容扫描。\nEnable Sophisticated Backpacks content scanning.")
             .define("enable_sophisticated_backpacks", true);
 
-    // 负责控制 Refined Storage 网络内容缓存是否启用。
+    // 负责控制 Refined Storage 便携 Grid 和主动远程网络缓存是否启用。
     private static final ForgeConfigSpec.BooleanValue ENABLE_REFINED_STORAGE = BUILDER
-            .comment("启用 Refined Storage 网络内容缓存。\nEnable Refined Storage network content caching.")
+            .comment("启用 Refined Storage 便携 Grid 和主动远程网络内容缓存。\nEnable Refined Storage portable Grid and actively opened remote network content caching.")
             .define("enable_refined_storage", true);
 
     // 负责控制 Applied Energistics 2 网络内容缓存是否启用。

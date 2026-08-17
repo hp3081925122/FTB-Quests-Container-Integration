@@ -42,7 +42,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
-// 负责把 Applied Energistics 2 的 ME 存储转换为 FTB Quests 可读取的玩家缓存。
+// 负责把 AE2 便携存储和主动打开的无线网络转换为 FTB Quests 可读取的玩家缓存。
 final class AppliedEnergistics2Integration {
     private static final String MOD_ID = "ae2";
     private static final Map<UUID, Binding> BINDINGS = new HashMap<>();
@@ -56,24 +56,30 @@ final class AppliedEnergistics2Integration {
         return Config.enableAppliedEnergistics2 && ModList.get().isLoaded(MOD_ID);
     }
 
-    // 玩家打开 AE2 存储菜单时绑定对应的网络或便携存储。
+    // 玩家打开 AE2 菜单时，普通方块终端不自动绑定，只处理便携存储和主动打开的无线终端。
     static void onContainerOpen(ServerPlayer player, AbstractContainerMenu menu) {
         if (!isAvailable() || !(menu instanceof MEStorageMenu storageMenu)) {
             return;
         }
 
         ITerminalHost host = storageMenu.getHost();
+        boolean portableHost = host instanceof IPortableTerminal && !(host instanceof IActionHost);
+        boolean wirelessHost = host instanceof IPortableTerminal && host instanceof IActionHost;
+        if (!portableHost && !wirelessHost) {
+            return;
+        }
+
         MEStorage storage = host.getInventory();
         if (storage == null) {
             return;
         }
 
         IGridNode networkNode = storageMenu.getNetworkNode();
-        if (networkNode == null && host instanceof IActionHost actionHost) {
+        if (wirelessHost && networkNode == null && host instanceof IActionHost actionHost) {
             networkNode = actionHost.getActionableNode();
         }
         IGrid grid = networkNode == null ? null : networkNode.getGrid();
-        if (grid == null && (!(host instanceof IPortableTerminal) || host instanceof IActionHost)) {
+        if (portableHost && grid != null || wirelessHost && grid == null) {
             return;
         }
 
@@ -542,7 +548,7 @@ final class AppliedEnergistics2Integration {
                     return true;
                 }
             }
-            return false;
+            return ModList.get().isLoaded("curios") && CuriosSupport.contains(player, sourceStackReference);
         }
 
         // 判断两个绑定是否指向同一个 ME 网络或同一个便携物品。

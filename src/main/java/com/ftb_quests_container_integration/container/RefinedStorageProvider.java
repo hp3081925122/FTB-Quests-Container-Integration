@@ -20,10 +20,17 @@ final class RefinedStorageProvider {
         return Config.enableRefinedStorage && ModList.get().isLoaded("refinedstorage");
     }
 
-    // Grid 菜单打开时绑定网络来源。
+    // Grid 菜单打开时绑定便携或远程网络来源。
     static void onContainerOpen(ServerPlayer player, AbstractContainerMenu menu) {
         if (isAvailable()) {
             RefinedStorageIntegration.onContainerOpen(player, menu);
+        }
+    }
+
+    // Grid 菜单关闭时解除对应的存储绑定。
+    static void onContainerClose(ServerPlayer player, AbstractContainerMenu menu) {
+        if (isAvailable()) {
+            RefinedStorageIntegration.onContainerClose(player, menu);
         }
     }
 
