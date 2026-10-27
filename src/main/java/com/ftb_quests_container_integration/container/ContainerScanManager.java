@@ -1,6 +1,7 @@
 package com.ftb_quests_container_integration.container;
 
 import com.ftb_quests_container_integration.Config;
+import com.mojang.logging.LogUtils;
 import dev.ftb.mods.ftbquests.quest.TeamData;
 import dev.ftb.mods.ftbquests.quest.task.ItemTask;
 import dev.ftb.mods.ftbquests.util.FTBQuestsInventoryListener;
@@ -16,9 +17,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.slf4j.Logger;
 
-// 负责统一推进精妙背包和 Refined Storage 的缓存，并把变化合并为 FTB 检测请求。
+// 负责统一推进便携容器、Refined Storage、Applied Energistics 2 和 Beyond Dimensions 缓存。
 public final class ContainerScanManager {
+    private static final Logger LOGGER = LogUtils.getLogger();
     private static final Set<UUID> PENDING_DETECTIONS = new ObjectOpenHashSet<>();
     private static final ThreadLocal<ActiveSnapshot> ACTIVE_SNAPSHOT = new ThreadLocal<>();
     private static final ThreadLocal<Boolean> DETECTING = ThreadLocal.withInitial(() -> false);
@@ -26,7 +29,7 @@ public final class ContainerScanManager {
     private ContainerScanManager() {
     }
 
-    // 推进三个可选存储集成，并在服务端 tick 末尾合并处理检测请求。
+    // 推进所有可选存储集成，并在服务端 tick 末尾合并处理检测请求。
     public static void tick(MinecraftServer server) {
         if (SophisticatedBackpacksProvider.isAvailable()) {
             SophisticatedBackpacksProvider.tick(server);
@@ -36,19 +39,23 @@ public final class ContainerScanManager {
 
         AppliedEnergistics2Provider.tick(server);
 
+        BeyondDimensionsProvider.tick(server);
+
         processPendingDetections(server);
     }
 
-    // Grid 菜单打开时绑定便携或远程 RS，以及 AE2 便携存储来源。
+    // 容器菜单打开时绑定 RS、AE2 和 Beyond Dimensions 的主动存储来源。
     public static void onContainerOpen(ServerPlayer player, AbstractContainerMenu menu) {
         RefinedStorageProvider.onContainerOpen(player, menu);
         AppliedEnergistics2Provider.onContainerOpen(player, menu);
+        BeyondDimensionsProvider.onContainerOpen(player, menu);
     }
 
-    // 转发容器关闭事件，解除 RS 和 AE2 当前存储绑定。
+    // 转发容器关闭事件，解除 RS、AE2 和 Beyond Dimensions 当前存储绑定。
     public static void onContainerClose(ServerPlayer player, AbstractContainerMenu menu) {
         RefinedStorageProvider.onContainerClose(player, menu);
         AppliedEnergistics2Provider.onContainerClose(player, menu);
+        BeyondDimensionsProvider.onContainerClose(player, menu);
     }
 
     // 请求在当前服务端 tick 统一重新检测玩家任务，避免事件风暴。
@@ -75,19 +82,23 @@ public final class ContainerScanManager {
         }
     }
 
-    // 合并便携容器、RS 和 AE2 缓存，作为本次 FTB Quests 库存汇总的附加物品。
+    // 合并便携容器、RS、AE2 和 Beyond Dimensions 缓存，作为本次 FTB Quests 库存汇总的附加物品。
     private static List<ItemStack> buildContainerSnapshot(ServerPlayer player) {
         List<ItemStack> snapshot = new ArrayList<>();
         snapshot.addAll(SophisticatedBackpacksProvider.getCachedStacks(player));
         snapshot.addAll(RefinedStorageProvider.getCachedStacks(player));
         snapshot.addAll(AppliedEnergistics2Provider.getCachedStacks(player));
+        List<ItemStack> beyondDimensionsStacks = BeyondDimensionsProvider.getCachedStacks(player);
+        snapshot.addAll(beyondDimensionsStacks);
+        LOGGER.debug("Built FTB Quests snapshot with {} Beyond Dimensions stacks for player {}",
+                beyondDimensionsStacks.size(), player.getGameProfile().getName());
         return snapshot;
     }
 
     // 从真实精妙背包、RS 或 AE2 存储 API 中按实际数量消耗物品。
     public static void consumeMatching(ItemTask task, TeamData teamData, ServerPlayer player, ItemStack craftedItem) {
         if ((!Config.consumeFromContainers && !Config.consumeFromRefinedStorage
-                && !Config.consumeFromAppliedEnergistics2)
+                && !Config.consumeFromAppliedEnergistics2 && !Config.consumeFromBeyondDimensions)
                 || !craftedItem.isEmpty()
                 || !task.consumesResources()
                 || teamData.isCompleted(task)) {
@@ -125,6 +136,15 @@ public final class ContainerScanManager {
             }
         }
 
+        if (remaining > 0L) {
+            consumed = BeyondDimensionsProvider.consumeMatching(task, player, remaining);
+            if (consumed > 0L) {
+                changed = true;
+                teamData.addProgress(task, consumed);
+                remaining -= consumed;
+            }
+        }
+
         if (changed) {
             player.getInventory().setChanged();
             player.containerMenu.broadcastChanges();
@@ -149,7 +169,7 @@ public final class ContainerScanManager {
         }
     }
 
-    // 删除指定玩家的容器、RS 和 AE2 缓存及待处理检测请求。
+    // 删除指定玩家的容器、RS、AE2 和 Beyond Dimensions 缓存及待处理检测请求。
     public static void removePlayer(Player player) {
         if (player == null) {
             return;
@@ -160,6 +180,7 @@ public final class ContainerScanManager {
             SophisticatedBackpacksProvider.removePlayer(serverPlayer);
             RefinedStorageProvider.removePlayer(serverPlayer);
             AppliedEnergistics2Provider.removePlayer(serverPlayer);
+            BeyondDimensionsProvider.removePlayer(serverPlayer);
         }
     }
 
@@ -169,6 +190,7 @@ public final class ContainerScanManager {
         SophisticatedBackpacksProvider.clear();
         RefinedStorageProvider.clear();
         AppliedEnergistics2Provider.clear();
+        BeyondDimensionsProvider.clear();
         ACTIVE_SNAPSHOT.remove();
         DETECTING.remove();
     }

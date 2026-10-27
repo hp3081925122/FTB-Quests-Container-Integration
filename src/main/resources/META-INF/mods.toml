@@ -82,3 +82,10 @@ mandatory = false
 versionRange = "[15.0,16.0)"
 ordering = "AFTER"
 side = "BOTH"
+
+[[dependencies."${mod_id}"]]
+modId = "beyonddimensions"
+mandatory = false
+versionRange = "[0.7.27,)"
+ordering = "AFTER"
+side = "BOTH"

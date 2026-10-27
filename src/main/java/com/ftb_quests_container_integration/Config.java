@@ -25,6 +25,11 @@ public final class Config {
             .comment("启用 Applied Energistics 2 网络内容缓存。\nEnable Applied Energistics 2 network content caching.")
             .define("enable_applied_energistics_2", true);
 
+    // 负责控制 Beyond Dimensions 网络内容缓存是否启用。
+    private static final ForgeConfigSpec.BooleanValue ENABLE_BEYOND_DIMENSIONS = BUILDER
+            .comment("启用 Beyond Dimensions 网络内容缓存。\nEnable Beyond Dimensions network content caching.")
+            .define("enable_beyond_dimensions", true);
+
     // 负责控制两轮完整容器扫描之间的目标间隔。
     private static final ForgeConfigSpec.IntValue SCAN_INTERVAL_SECONDS = BUILDER
             .comment("完整扫描之间的目标间隔，单位为秒。\nTarget interval between complete scans, in seconds.")
@@ -39,6 +44,11 @@ public final class Config {
     private static final ForgeConfigSpec.IntValue MAX_REFINED_STORAGE_ENTRIES_PER_PLAYER_PER_TICK = BUILDER
             .comment("单个玩家每个服务端 tick 的最大 RS 物品条目读取量。\nMaximum Refined Storage entries read for one player per server tick.")
             .defineInRange("max_refined_storage_entries_per_player_per_tick", 16, 1, 4096);
+
+    // 负责限制单个玩家在一个服务端 tick 中读取的 Beyond Dimensions 物品条目数量。
+    private static final ForgeConfigSpec.IntValue MAX_BEYOND_DIMENSIONS_ENTRIES_PER_PLAYER_PER_TICK = BUILDER
+            .comment("单个玩家每个服务端 tick 的最大 Beyond Dimensions 物品条目读取量。\nMaximum Beyond Dimensions entries read for one player per server tick.")
+            .defineInRange("max_beyond_dimensions_entries_per_player_per_tick", 16, 1, 4096);
 
     // 负责控制 Applied Energistics 2 缓存的完整刷新间隔。
     private static final ForgeConfigSpec.IntValue APPLIED_ENERGISTICS_2_REFRESH_INTERVAL_SECONDS = BUILDER
@@ -75,14 +85,21 @@ public final class Config {
             .comment("允许消耗型任务从绑定的 Applied Energistics 2 存储扣除物品。\nAllow consuming tasks to remove items from bound Applied Energistics 2 storage.")
             .define("consume_from_applied_energistics_2", true);
 
+    // 负责控制消耗型任务是否可以从绑定的 Beyond Dimensions 存储扣除物品。
+    private static final ForgeConfigSpec.BooleanValue CONSUME_FROM_BEYOND_DIMENSIONS = BUILDER
+            .comment("允许消耗型任务从绑定的 Beyond Dimensions 存储扣除物品。\nAllow consuming tasks to remove items from bound Beyond Dimensions storage.")
+            .define("consume_from_beyond_dimensions", true);
+
     static final ForgeConfigSpec SPEC = BUILDER.build();
 
     public static boolean enableSophisticatedBackpacks = true;
     public static boolean enableRefinedStorage = true;
     public static boolean enableAppliedEnergistics2 = true;
+    public static boolean enableBeyondDimensions = true;
     public static int scanIntervalSeconds = 3;
     public static int maxSlotsPerPlayerPerTick = 32;
     public static int maxRefinedStorageEntriesPerPlayerPerTick = 16;
+    public static int maxBeyondDimensionsEntriesPerPlayerPerTick = 16;
     public static int appliedEnergistics2RefreshIntervalSeconds = 3;
     public static boolean scanArmorAndOffhand = true;
     public static boolean scanCurios = true;
@@ -90,6 +107,7 @@ public final class Config {
     public static boolean consumeFromContainers = true;
     public static boolean consumeFromRefinedStorage = true;
     public static boolean consumeFromAppliedEnergistics2 = true;
+    public static boolean consumeFromBeyondDimensions = true;
 
     private Config() {
     }
@@ -104,9 +122,11 @@ public final class Config {
         enableSophisticatedBackpacks = ENABLE_SOPHISTICATED_BACKPACKS.get();
         enableRefinedStorage = ENABLE_REFINED_STORAGE.get();
         enableAppliedEnergistics2 = ENABLE_APPLIED_ENERGISTICS_2.get();
+        enableBeyondDimensions = ENABLE_BEYOND_DIMENSIONS.get();
         scanIntervalSeconds = SCAN_INTERVAL_SECONDS.get();
         maxSlotsPerPlayerPerTick = MAX_SLOTS_PER_PLAYER_PER_TICK.get();
         maxRefinedStorageEntriesPerPlayerPerTick = MAX_REFINED_STORAGE_ENTRIES_PER_PLAYER_PER_TICK.get();
+        maxBeyondDimensionsEntriesPerPlayerPerTick = MAX_BEYOND_DIMENSIONS_ENTRIES_PER_PLAYER_PER_TICK.get();
         appliedEnergistics2RefreshIntervalSeconds = APPLIED_ENERGISTICS_2_REFRESH_INTERVAL_SECONDS.get();
         scanArmorAndOffhand = SCAN_ARMOR_AND_OFFHAND.get();
         scanCurios = SCAN_CURIOS.get();
@@ -114,5 +134,6 @@ public final class Config {
         consumeFromContainers = CONSUME_FROM_CONTAINERS.get();
         consumeFromRefinedStorage = CONSUME_FROM_REFINED_STORAGE.get();
         consumeFromAppliedEnergistics2 = CONSUME_FROM_APPLIED_ENERGISTICS_2.get();
+        consumeFromBeyondDimensions = CONSUME_FROM_BEYOND_DIMENSIONS.get();
     }
 }
