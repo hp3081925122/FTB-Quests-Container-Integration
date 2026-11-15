@@ -1,58 +1,54 @@
 package com.ftb_quests_container_integration;
 
 import com.ftb_quests_container_integration.container.ContainerScanManager;
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.event.entity.player.PlayerContainerEvent;
-import net.minecraftforge.event.entity.player.PlayerEvent;
-import net.minecraftforge.event.server.ServerStoppingEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.ModLoadingContext;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.config.ModConfig;
+import net.minecraft.server.level.ServerPlayer;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.entity.player.PlayerContainerEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
-// 负责注册配置并把容器扫描器接入 Forge 服务端事件总线。
-    @Mod(Ftb_quests_container_integration.MODID)
+@Mod(Ftb_quests_container_integration.MODID)
 public final class Ftb_quests_container_integration {
     public static final String MODID = "ftb_quests_container_integration";
 
-    @SuppressWarnings("removal")
-    public Ftb_quests_container_integration() {
-        ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, Config.SPEC);
-        MinecraftForge.EVENT_BUS.register(this);
+    public Ftb_quests_container_integration(IEventBus modEventBus, ModContainer modContainer) {
+        modEventBus.addListener(Config::onLoading);
+        modEventBus.addListener(Config::onReloading);
+        modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
+        NeoForge.EVENT_BUS.register(this);
+        ContainerScanManager.init();
     }
 
-    // 负责在服务端 tick 末尾分批推进所有在线玩家的容器扫描。
     @SubscribeEvent
-    public void onServerTick(TickEvent.ServerTickEvent event) {
-        if (event.phase == TickEvent.Phase.END) {
-            ContainerScanManager.tick(event.getServer());
-        }
+    public void onServerTick(ServerTickEvent.Post event) {
+        ContainerScanManager.tick(event.getServer());
     }
 
-    // 监听玩家打开容器事件，用于绑定便携 Refined Storage Grid 来源。
     @SubscribeEvent
     public void onContainerOpen(PlayerContainerEvent.Open event) {
-        if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
+        if (event.getEntity() instanceof ServerPlayer player) {
             ContainerScanManager.onContainerOpen(player, event.getContainer());
         }
     }
 
-    // 监听玩家关闭容器事件，用于清理便携存储绑定。
     @SubscribeEvent
     public void onContainerClose(PlayerContainerEvent.Close event) {
-        if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
+        if (event.getEntity() instanceof ServerPlayer player) {
             ContainerScanManager.onContainerClose(player, event.getContainer());
         }
     }
 
-    // 负责清理退出玩家的扫描状态，避免跨玩家复用快照。
     @SubscribeEvent
     public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         ContainerScanManager.removePlayer(event.getEntity());
     }
 
-    // 负责在服务端停止时释放所有扫描快照和调度状态。
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
         ContainerScanManager.clear();

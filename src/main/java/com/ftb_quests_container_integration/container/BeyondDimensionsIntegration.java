@@ -12,7 +12,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.ItemStack;
-import net.minecraftforge.fml.ModList;
+import net.neoforged.fml.ModList;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,7 +22,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-// 负责把打开的 Beyond Dimensions 网络转换为 FTB Quests 可读取的物品缓存。
 final class BeyondDimensionsIntegration {
     private static final String MOD_ID = "beyonddimensions";
     private static final Map<UUID, Binding> BINDINGS = new HashMap<>();
@@ -30,12 +29,10 @@ final class BeyondDimensionsIntegration {
     private BeyondDimensionsIntegration() {
     }
 
-    // 判断当前环境是否可以使用 Beyond Dimensions API。
     static boolean isAvailable() {
         return Config.enableBeyondDimensions && ModList.get().isLoaded(MOD_ID);
     }
 
-    // 玩家打开 Beyond Dimensions 网络菜单时绑定菜单持有的统一存储。
     static void onContainerOpen(ServerPlayer player, AbstractContainerMenu menu) {
         if (!isAvailable() || !(menu instanceof DimensionsNetMenu netMenu)
                 || !(netMenu.storage instanceof UnifiedStorage storage)
@@ -59,7 +56,6 @@ final class BeyondDimensionsIntegration {
         binding.startScan();
     }
 
-    // 玩家关闭当前绑定的 Beyond Dimensions 网络菜单时解除监听器。
     static void onContainerClose(ServerPlayer player, AbstractContainerMenu menu) {
         Binding binding = BINDINGS.get(player.getUUID());
         if (binding != null && binding.menu == menu) {
@@ -69,7 +65,6 @@ final class BeyondDimensionsIntegration {
         }
     }
 
-    // 每个服务端 tick 检查网络状态并推进初始缓存扫描。
     static void tick(MinecraftServer server) {
         BINDINGS.entrySet().removeIf(entry -> {
             ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
@@ -87,13 +82,11 @@ final class BeyondDimensionsIntegration {
         });
     }
 
-    // 返回已完成初始扫描的物品缓存，并把长数量拆成合法的 ItemStack 数量。
     static List<ItemStack> getCachedStacks(ServerPlayer player) {
         Binding binding = BINDINGS.get(player.getUUID());
         return binding == null ? List.of() : binding.getCachedStacks();
     }
 
-    // 从当前绑定的 Beyond Dimensions 存储实际提取消耗型任务物品。
     static long consumeMatching(ItemTask task, ServerPlayer player, long remaining) {
         if (!Config.consumeFromBeyondDimensions || remaining <= 0L) {
             return 0L;
@@ -128,7 +121,6 @@ final class BeyondDimensionsIntegration {
         return consumed;
     }
 
-    // 删除指定玩家的绑定和对应的 Beyond Dimensions 存储监听器。
     static void removePlayer(ServerPlayer player) {
         Binding binding = BINDINGS.remove(player.getUUID());
         if (binding != null) {
@@ -136,13 +128,11 @@ final class BeyondDimensionsIntegration {
         }
     }
 
-    // 清理服务端停止时残留的所有绑定和监听器。
     static void clear() {
         BINDINGS.values().forEach(Binding::close);
         BINDINGS.clear();
     }
 
-    // 保存一个玩家的菜单来源、统一存储和增量缓存状态。
     private static final class Binding {
         final ServerPlayer player;
         AbstractContainerMenu menu;
@@ -157,7 +147,6 @@ final class BeyondDimensionsIntegration {
         boolean ready;
         boolean closed;
 
-        // 创建绑定并注册统一存储的单键变化和整体变化监听。
         Binding(ServerPlayer player, AbstractContainerMenu menu, UnifiedStorage storage) {
             this.player = player;
             this.menu = menu;
@@ -166,7 +155,6 @@ final class BeyondDimensionsIntegration {
             this.anySubscription = storage.subscribeAny(this, this::onAnyChange);
         }
 
-        // 建立当前统一存储的初始物品键队列，具体内容按 tick 分批读取。
         void startScan() {
             cached.clear();
             changedDuringScan.clear();
@@ -182,7 +170,6 @@ final class BeyondDimensionsIntegration {
             ready = false;
         }
 
-        // 按配置预算处理初始物品键，完成后才将缓存提供给 FTB Quests。
         void processBatch() {
             if (closed || !scanning) {
                 return;
@@ -203,7 +190,6 @@ final class BeyondDimensionsIntegration {
             }
         }
 
-        // 处理统一存储的单个键变化并更新对应数量。
         void onDelta(IStackKey<?> key, long size, boolean insert) {
             if (closed || !(key instanceof ItemStackKey itemKey)) {
                 return;
@@ -214,14 +200,12 @@ final class BeyondDimensionsIntegration {
             updateKey(itemKey, ready);
         }
 
-        // 处理统一存储整体变化，重新建立分批扫描队列以覆盖清空操作。
         void onAnyChange() {
             if (!closed) {
                 startScan();
             }
         }
 
-        // 从统一存储读取单个键的当前数量并同步本地缓存。
         void updateKey(ItemStackKey key, boolean requestDetection) {
             long amount = storage.getStackByKey(key).amount();
             if (amount > 0L) {
@@ -234,13 +218,11 @@ final class BeyondDimensionsIntegration {
             }
         }
 
-        // 判断绑定的维度网络是否仍然存在且没有被删除。
         boolean isUsable() {
             DimensionsNet net = storage.getNet();
             return !closed && net != null && !net.deleted;
         }
 
-        // 返回缓存物品副本，避免 FTB Quests 持有统一存储内部对象。
         List<ItemStack> getCachedStacks() {
             if (!ready) {
                 return List.of();
@@ -258,7 +240,6 @@ final class BeyondDimensionsIntegration {
             return result;
         }
 
-        // 取消统一存储监听并释放绑定缓存。
         void close() {
             if (closed) {
                 return;
@@ -275,7 +256,6 @@ final class BeyondDimensionsIntegration {
             ready = false;
         }
 
-        // 安全关闭统一存储监听器，避免 AutoCloseable 的异常影响服务端 tick。
         private static void closeSubscription(AutoCloseable subscription) {
             if (subscription == null) {
                 return;

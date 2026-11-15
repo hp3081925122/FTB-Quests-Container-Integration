@@ -2,6 +2,8 @@ package com.ftb_quests_container_integration.container;
 
 import com.ftb_quests_container_integration.Config;
 import com.mojang.logging.LogUtils;
+import dev.architectury.event.EventResult;
+import dev.ftb.mods.ftbquests.events.ObjectCompletedEvent;
 import dev.ftb.mods.ftbquests.quest.TeamData;
 import dev.ftb.mods.ftbquests.quest.task.ItemTask;
 import dev.ftb.mods.ftbquests.util.FTBQuestsInventoryListener;
@@ -11,25 +13,29 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.ItemStack;
+import org.slf4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import org.slf4j.Logger;
 
-// 负责统一推进便携容器、Refined Storage、Applied Energistics 2 和 Beyond Dimensions 缓存。
 public final class ContainerScanManager {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Set<UUID> PENDING_DETECTIONS = new ObjectOpenHashSet<>();
     private static final ThreadLocal<ActiveSnapshot> ACTIVE_SNAPSHOT = new ThreadLocal<>();
-    private static final ThreadLocal<Boolean> DETECTING = ThreadLocal.withInitial(() -> false);
 
     private ContainerScanManager() {
     }
 
-    // 推进所有可选存储集成，并在服务端 tick 末尾合并处理检测请求。
+    public static void init() {
+        ObjectCompletedEvent.QUEST.register(event -> {
+            event.getOnlineMembers().forEach(ContainerScanManager::requestDetection);
+            return EventResult.pass();
+        });
+    }
+
     public static void tick(MinecraftServer server) {
         if (SophisticatedBackpacksProvider.isAvailable()) {
             SophisticatedBackpacksProvider.tick(server);
@@ -44,28 +50,24 @@ public final class ContainerScanManager {
         processPendingDetections(server);
     }
 
-    // 容器菜单打开时绑定 RS、AE2 和 Beyond Dimensions 的主动存储来源。
     public static void onContainerOpen(ServerPlayer player, AbstractContainerMenu menu) {
         RefinedStorageProvider.onContainerOpen(player, menu);
         AppliedEnergistics2Provider.onContainerOpen(player, menu);
         BeyondDimensionsProvider.onContainerOpen(player, menu);
     }
 
-    // 转发容器关闭事件，解除 RS、AE2 和 Beyond Dimensions 当前存储绑定。
     public static void onContainerClose(ServerPlayer player, AbstractContainerMenu menu) {
         RefinedStorageProvider.onContainerClose(player, menu);
         AppliedEnergistics2Provider.onContainerClose(player, menu);
         BeyondDimensionsProvider.onContainerClose(player, menu);
     }
 
-    // 请求在当前服务端 tick 统一重新检测玩家任务，避免事件风暴。
     static void requestDetection(ServerPlayer player) {
-        if (player != null && !DETECTING.get()) {
+        if (player != null) {
             PENDING_DETECTIONS.add(player.getUUID());
         }
     }
 
-    // 在同一 tick 内最多为每位玩家调用一次 FTB Quests 检测。
     private static void processPendingDetections(MinecraftServer server) {
         if (PENDING_DETECTIONS.isEmpty()) {
             return;
@@ -82,7 +84,6 @@ public final class ContainerScanManager {
         }
     }
 
-    // 合并便携容器、RS、AE2 和 Beyond Dimensions 缓存，作为本次 FTB Quests 库存汇总的附加物品。
     private static List<ItemStack> buildContainerSnapshot(ServerPlayer player) {
         List<ItemStack> snapshot = new ArrayList<>();
         snapshot.addAll(SophisticatedBackpacksProvider.getCachedStacks(player));
@@ -95,7 +96,6 @@ public final class ContainerScanManager {
         return snapshot;
     }
 
-    // 从真实精妙背包、RS 或 AE2 存储 API 中按实际数量消耗物品。
     public static void consumeMatching(ItemTask task, TeamData teamData, ServerPlayer player, ItemStack craftedItem) {
         if ((!Config.consumeFromContainers && !Config.consumeFromRefinedStorage
                 && !Config.consumeFromAppliedEnergistics2 && !Config.consumeFromBeyondDimensions)
@@ -151,25 +151,20 @@ public final class ContainerScanManager {
         }
     }
 
-    // 提供给 FTB Quests Mixin 的当前检测附加快照，普通 FTB 事件不读取旧缓存。
     public static List<ItemStack> getActiveSnapshot(ServerPlayer player) {
         ActiveSnapshot active = ACTIVE_SNAPSHOT.get();
         return active != null && active.player == player ? active.items : List.of();
     }
 
-    // 在检测期间安装一次性快照，并阻止容器事件立即递归触发检测。
     private static void detectWithSnapshot(ServerPlayer player, List<ItemStack> snapshot) {
         ACTIVE_SNAPSHOT.set(new ActiveSnapshot(player, snapshot));
-        DETECTING.set(true);
         try {
             FTBQuestsInventoryListener.detect(player, ItemStack.EMPTY, 0L);
         } finally {
-            DETECTING.remove();
             ACTIVE_SNAPSHOT.remove();
         }
     }
 
-    // 删除指定玩家的容器、RS、AE2 和 Beyond Dimensions 缓存及待处理检测请求。
     public static void removePlayer(Player player) {
         if (player == null) {
             return;
@@ -184,7 +179,6 @@ public final class ContainerScanManager {
         }
     }
 
-    // 清理服务端停止时残留的缓存和监听器。
     public static void clear() {
         PENDING_DETECTIONS.clear();
         SophisticatedBackpacksProvider.clear();
@@ -192,15 +186,12 @@ public final class ContainerScanManager {
         AppliedEnergistics2Provider.clear();
         BeyondDimensionsProvider.clear();
         ACTIVE_SNAPSHOT.remove();
-        DETECTING.remove();
     }
 
-    // 标记当前线程正在向 FTB Quests 提供哪位玩家的容器快照。
     private static final class ActiveSnapshot {
         final ServerPlayer player;
         final List<ItemStack> items;
 
-        // 创建一次性检测上下文。
         ActiveSnapshot(ServerPlayer player, List<ItemStack> items) {
             this.player = player;
             this.items = items;
