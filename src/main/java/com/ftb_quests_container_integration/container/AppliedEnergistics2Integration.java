@@ -4,27 +4,20 @@ import com.ftb_quests_container_integration.Config;
 import appeng.api.config.Actionable;
 import appeng.api.implementations.menuobjects.IPortableTerminal;
 import appeng.api.implementations.menuobjects.ItemMenuHost;
-import appeng.api.networking.GridFlags;
-import appeng.api.networking.GridHelper;
 import appeng.api.networking.IGrid;
-import appeng.api.networking.IGridConnection;
 import appeng.api.networking.IGridNode;
-import appeng.api.networking.IManagedGridNode;
-import appeng.api.networking.IStackWatcher;
 import appeng.api.networking.security.IActionHost;
 import appeng.api.networking.energy.IEnergySource;
 import appeng.api.networking.security.IActionSource;
 import appeng.api.storage.ITerminalHost;
 import appeng.api.storage.MEStorage;
 import appeng.api.storage.StorageHelper;
-import appeng.api.networking.storage.IStorageWatcherNode;
 import appeng.api.stacks.AEItemKey;
 import appeng.api.stacks.AEKey;
 import appeng.api.stacks.KeyCounter;
 import appeng.menu.me.common.MEStorageMenu;
 import dev.ftb.mods.ftbquests.quest.task.ItemTask;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
-import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -35,7 +28,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -133,7 +125,7 @@ final class AppliedEnergistics2Integration {
         }
     }
 
-    // 每个服务端 tick 检查绑定网络状态，并推进 watcher 失败时的轮询兜底。
+    // 每个服务端 tick 检查绑定网络状态，并按周期刷新网络与便携存储缓存。
     static void tick(MinecraftServer server) {
         long gameTime = server.overworld().getGameTime();
         BINDINGS.entrySet().removeIf(entry -> {
@@ -178,11 +170,18 @@ final class AppliedEnergistics2Integration {
         }
 
         long consumed = 0L;
-        Iterator<Map.Entry<AEItemKey, Long>> iterator = binding.cachedCounts().entrySet().iterator();
-        while (iterator.hasNext() && consumed < remaining) {
-            Map.Entry<AEItemKey, Long> entry = iterator.next();
-            if (!task.test(entry.getKey().toStack(1))) {
-                continue;
+        Map<AEItemKey, Long> counts = binding.cachedCounts();
+        List<Map.Entry<AEItemKey, Long>> candidates = new ArrayList<>();
+        for (Map.Entry<AEItemKey, Long> entry : counts.entrySet()) {
+            if (task.test(entry.getKey().toStack(1))) {
+                candidates.add(Map.entry(entry.getKey(), entry.getValue()));
+            }
+        }
+
+        boolean changed = false;
+        for (Map.Entry<AEItemKey, Long> entry : candidates) {
+            if (consumed >= remaining) {
+                break;
             }
 
             long amount = Math.min(entry.getValue(), remaining - consumed);
@@ -198,15 +197,11 @@ final class AppliedEnergistics2Integration {
             }
 
             consumed += extracted;
-            long left = entry.getValue() - extracted;
-            if (left <= 0L) {
-                iterator.remove();
-            } else {
-                entry.setValue(left);
-            }
+            changed = true;
+            binding.updateKey(entry.getKey(), entry.getValue() - extracted);
         }
 
-        if (consumed > 0L) {
+        if (changed && binding.networkCache == null) {
             binding.rebuildCachedStacks();
         }
         return consumed;
@@ -227,7 +222,7 @@ final class AppliedEnergistics2Integration {
         NETWORK_CACHES.clear();
     }
 
-    // 保存同一个 AE2 网络的共享缓存，避免多个玩家重复读取和构造物品栈。
+    // 保存同一个 AE2 网络的共享缓存，按周期读取 AE2 自身维护的网络库存，不向网络添加任何节点。
     private static final class NetworkCache {
         final IGrid grid;
         final Set<Binding> bindings = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -235,31 +230,23 @@ final class AppliedEnergistics2Integration {
         Map<AEItemKey, List<ItemStack>> cachedStacks = new HashMap<>();
         long nextRefreshGameTime;
         boolean ready;
-        IManagedGridNode watcherNode;
-        IGridConnection watcherConnection;
-        NetworkWatcher watcher;
 
         // 创建一个网络级缓存对象。
         NetworkCache(IGrid grid) {
             this.grid = grid;
         }
 
-        // 记录玩家绑定，并在第一个玩家进入时建立网络 watcher。
+        // 记录玩家绑定。
         void addBinding(Binding binding) {
-            if (!bindings.add(binding)) {
-                return;
-            }
-            NETWORK_CACHES.putIfAbsent(grid, this);
-            if (bindings.size() == 1) {
-                startWatcher(grid.getPivot());
+            if (bindings.add(binding)) {
+                NETWORK_CACHES.putIfAbsent(grid, this);
             }
         }
 
-        // 删除玩家绑定，并在网络无人使用时销毁 watcher 和缓存。
+        // 删除玩家绑定，并在网络无人使用时释放缓存。
         void removeBinding(Binding binding) {
             bindings.remove(binding);
             if (bindings.isEmpty()) {
-                stopWatcher();
                 ready = false;
                 cachedCounts.clear();
                 cachedStacks.clear();
@@ -270,7 +257,7 @@ final class AppliedEnergistics2Integration {
             }
         }
 
-        // 网络失效时清理缓存；watcher 创建失败时保留三秒轮询作为兜底。
+        // 网络失效时清理缓存，否则按配置周期刷新。
         void tick(long gameTime) {
             if (bindings.isEmpty()) {
                 return;
@@ -290,61 +277,16 @@ final class AppliedEnergistics2Integration {
                     cachedStacks.clear();
                     bindings.forEach(binding -> ContainerScanManager.requestDetection(binding.player));
                 }
-                stopWatcher();
                 nextRefreshGameTime = gameTime + 1L;
                 return;
             }
 
-            if (watcher == null && gameTime >= nextRefreshGameTime) {
+            if (gameTime >= nextRefreshGameTime) {
                 refresh(gameTime);
             }
         }
 
-        // 建立一个不占用世界方块的 AE2 网格节点，并注册全量物品 watcher。
-        private void startWatcher(IGridNode targetNode) {
-            if (watcher != null || targetNode == null) {
-                return;
-            }
-
-            NetworkWatcher networkWatcher = new NetworkWatcher(this);
-            IManagedGridNode managedNode = GridHelper.createManagedNode(networkWatcher, (owner, node) -> {
-            });
-            managedNode.setInWorldNode(false)
-                    .setFlags(GridFlags.CANNOT_CARRY)
-                    .setIdlePowerUsage(0)
-                    .addService(IStorageWatcherNode.class, networkWatcher);
-            try {
-                managedNode.create(targetNode.getLevel(), BlockPos.ZERO);
-                IGridNode watcherGridNode = managedNode.getNode();
-                if (watcherGridNode == null) {
-                    managedNode.destroy();
-                    return;
-                }
-
-                watcherNode = managedNode;
-                watcher = networkWatcher;
-                watcherConnection = GridHelper.createConnection(watcherGridNode, targetNode);
-            } catch (RuntimeException exception) {
-                watcher = null;
-                watcherNode = null;
-                managedNode.destroy();
-            }
-        }
-
-        // 销毁虚拟节点和连接，避免网络在终端关闭后继续保留 watcher。
-        private void stopWatcher() {
-            if (watcherConnection != null) {
-                watcherConnection.destroy();
-                watcherConnection = null;
-            }
-            if (watcherNode != null) {
-                watcherNode.destroy();
-                watcherNode = null;
-            }
-            watcher = null;
-        }
-
-        // 首次建立 watcher 或 watcher 失败时读取一次 AE2 网络完整快照。
+        // 读取 AE2 存储服务的缓存库存，只为数量变化的物品键重建物品栈。
         void refresh(long gameTime) {
             KeyCounter available = grid.getStorageService().getCachedInventory();
             Map<AEItemKey, Long> refreshed = new HashMap<>();
@@ -354,11 +296,24 @@ final class AppliedEnergistics2Integration {
                 }
             }
 
-            boolean changed = !ready || !cachedCounts.equals(refreshed);
-            if (changed) {
-                cachedCounts = refreshed;
-                cachedStacks = createStackParts(refreshed);
+            boolean changed = !ready;
+            Map<AEItemKey, List<ItemStack>> stacks = new HashMap<>(refreshed.size());
+            for (Map.Entry<AEItemKey, Long> entry : refreshed.entrySet()) {
+                Long oldAmount = cachedCounts.get(entry.getKey());
+                List<ItemStack> oldStacks = cachedStacks.get(entry.getKey());
+                if (oldAmount != null && oldAmount.longValue() == entry.getValue() && oldStacks != null) {
+                    stacks.put(entry.getKey(), oldStacks);
+                } else {
+                    stacks.put(entry.getKey(), createStackParts(entry.getKey(), entry.getValue()));
+                    changed = true;
+                }
             }
+            if (refreshed.size() != cachedCounts.size()) {
+                changed = true;
+            }
+
+            cachedCounts = refreshed;
+            cachedStacks = stacks;
             ready = true;
             nextRefreshGameTime = gameTime + Math.max(1L, (long) Config.appliedEnergistics2RefreshIntervalSeconds * 20L);
             if (changed) {
@@ -366,34 +321,15 @@ final class AppliedEnergistics2Integration {
             }
         }
 
-        // 根据消耗结果重建共享物品栈快照。
-        void rebuildCachedStacks() {
-            cachedStacks = createStackParts(cachedCounts);
-        }
-
-        // 接收 AE2 单个物品键的最新数量，并只重建该物品的物品栈。
-        void onStackChange(AEKey key, long amount) {
-            if (!(key instanceof AEItemKey itemKey)) {
-                return;
-            }
-
-            Long oldAmount = cachedCounts.get(itemKey);
+        // 消耗后只同步单个物品键的数量和物品栈。
+        void updateKey(AEItemKey key, long amount) {
             if (amount <= 0L) {
-                if (oldAmount == null) {
-                    return;
-                }
-                cachedCounts.remove(itemKey);
-                cachedStacks.remove(itemKey);
+                cachedCounts.remove(key);
+                cachedStacks.remove(key);
             } else {
-                if (oldAmount != null && oldAmount == amount) {
-                    return;
-                }
-                cachedCounts.put(itemKey, amount);
-                cachedStacks.put(itemKey, createStackParts(itemKey, amount));
+                cachedCounts.put(key, amount);
+                cachedStacks.put(key, createStackParts(key, amount));
             }
-
-            ready = true;
-            bindings.forEach(binding -> ContainerScanManager.requestDetection(binding.player));
         }
 
         // 返回共享缓存的副本，避免 FTB Quests 持有内部可变对象。
@@ -404,28 +340,6 @@ final class AppliedEnergistics2Integration {
             List<ItemStack> result = new ArrayList<>(cachedCounts.size());
             cachedStacks.values().forEach(stacks -> stacks.forEach(stack -> result.add(stack.copy())));
             return result;
-        }
-    }
-
-    // 把 AE2 watcher 回调转发到对应网络的增量缓存。
-    private static final class NetworkWatcher implements IStorageWatcherNode {
-        private final NetworkCache cache;
-
-        // 创建一个绑定到网络缓存的 watcher 服务。
-        NetworkWatcher(NetworkCache cache) {
-            this.cache = cache;
-        }
-
-        // 监听所有物品键，使网络变动可以立即进入增量回调。
-        @Override
-        public void updateWatcher(IStackWatcher watcher) {
-            watcher.setWatchAll(true);
-        }
-
-        // 把 AE2 的单键数量变化交给网络缓存处理。
-        @Override
-        public void onStackChange(AEKey key, long amount) {
-            cache.onStackChange(key, amount);
         }
     }
 
@@ -516,13 +430,20 @@ final class AppliedEnergistics2Integration {
             return networkCache == null ? cachedCounts : networkCache.cachedCounts;
         }
 
-        // 根据消耗结果重建当前绑定对应的物品栈快照。
-        void rebuildCachedStacks() {
-            if (networkCache == null) {
-                cachedStacks = createStacks(cachedCounts);
+        // 消耗后同步单个物品键的数量，网络缓存同时更新对应物品栈。
+        void updateKey(AEItemKey key, long amount) {
+            if (networkCache != null) {
+                networkCache.updateKey(key, amount);
+            } else if (amount <= 0L) {
+                cachedCounts.remove(key);
             } else {
-                networkCache.rebuildCachedStacks();
+                cachedCounts.put(key, amount);
             }
+        }
+
+        // 根据消耗结果重建便携存储的物品栈快照。
+        void rebuildCachedStacks() {
+            cachedStacks = createStacks(cachedCounts);
         }
 
         // 判断便携 AE2 物品来源是否仍在玩家物品栏中。

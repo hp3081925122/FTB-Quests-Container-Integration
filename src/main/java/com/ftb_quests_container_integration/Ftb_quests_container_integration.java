@@ -20,6 +20,7 @@ public final class Ftb_quests_container_integration {
     public Ftb_quests_container_integration() {
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, Config.SPEC);
         MinecraftForge.EVENT_BUS.register(this);
+        ContainerScanManager.init();
     }
 
     // 负责在服务端 tick 末尾分批推进所有在线玩家的容器扫描。

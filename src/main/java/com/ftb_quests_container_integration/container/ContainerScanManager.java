@@ -2,6 +2,8 @@ package com.ftb_quests_container_integration.container;
 
 import com.ftb_quests_container_integration.Config;
 import com.mojang.logging.LogUtils;
+import dev.architectury.event.EventResult;
+import dev.ftb.mods.ftbquests.events.ObjectCompletedEvent;
 import dev.ftb.mods.ftbquests.quest.TeamData;
 import dev.ftb.mods.ftbquests.quest.task.ItemTask;
 import dev.ftb.mods.ftbquests.util.FTBQuestsInventoryListener;
@@ -24,9 +26,16 @@ public final class ContainerScanManager {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Set<UUID> PENDING_DETECTIONS = new ObjectOpenHashSet<>();
     private static final ThreadLocal<ActiveSnapshot> ACTIVE_SNAPSHOT = new ThreadLocal<>();
-    private static final ThreadLocal<Boolean> DETECTING = ThreadLocal.withInitial(() -> false);
 
     private ContainerScanManager() {
+    }
+
+    // 任务完成后可能解锁新任务，为在线成员补发一次带容器快照的检测。
+    public static void init() {
+        ObjectCompletedEvent.QUEST.register(event -> {
+            event.getOnlineMembers().forEach(ContainerScanManager::requestDetection);
+            return EventResult.pass();
+        });
     }
 
     // 推进所有可选存储集成，并在服务端 tick 末尾合并处理检测请求。
@@ -58,9 +67,9 @@ public final class ContainerScanManager {
         BeyondDimensionsProvider.onContainerClose(player, menu);
     }
 
-    // 请求在当前服务端 tick 统一重新检测玩家任务，避免事件风暴。
+    // 请求在服务端 tick 末尾统一重新检测玩家任务，检测期间产生的请求顺延到下一 tick。
     static void requestDetection(ServerPlayer player) {
-        if (player != null && !DETECTING.get()) {
+        if (player != null) {
             PENDING_DETECTIONS.add(player.getUUID());
         }
     }
@@ -157,14 +166,12 @@ public final class ContainerScanManager {
         return active != null && active.player == player ? active.items : List.of();
     }
 
-    // 在检测期间安装一次性快照，并阻止容器事件立即递归触发检测。
+    // 在检测期间安装一次性快照。
     private static void detectWithSnapshot(ServerPlayer player, List<ItemStack> snapshot) {
         ACTIVE_SNAPSHOT.set(new ActiveSnapshot(player, snapshot));
-        DETECTING.set(true);
         try {
             FTBQuestsInventoryListener.detect(player, ItemStack.EMPTY, 0L);
         } finally {
-            DETECTING.remove();
             ACTIVE_SNAPSHOT.remove();
         }
     }
@@ -192,7 +199,6 @@ public final class ContainerScanManager {
         AppliedEnergistics2Provider.clear();
         BeyondDimensionsProvider.clear();
         ACTIVE_SNAPSHOT.remove();
-        DETECTING.remove();
     }
 
     // 标记当前线程正在向 FTB Quests 提供哪位玩家的容器快照。

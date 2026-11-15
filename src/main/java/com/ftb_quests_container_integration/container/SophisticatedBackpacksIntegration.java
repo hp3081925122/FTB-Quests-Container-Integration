@@ -69,13 +69,23 @@ final class SophisticatedBackpacksIntegration {
                 break;
             }
 
+            BackpackBinding binding = candidate.binding;
+            if (!binding.active || binding.handler.getSlots() <= candidate.slot) {
+                continue;
+            }
+            // 缓存可能与实际槽位不同步，扣除前以真实槽位内容重新匹配任务。
+            ItemStack current = binding.handler.getStackInSlot(candidate.slot);
+            if (current.isEmpty() || !task.test(current)) {
+                continue;
+            }
+
             long needed = remaining - consumed;
-            int amount = (int) Math.min((long) candidate.stack.getCount(), needed);
+            int amount = (int) Math.min((long) current.getCount(), needed);
             if (amount <= 0) {
                 continue;
             }
 
-            ItemStack extracted = candidate.binding.handler.extractItem(candidate.slot, amount, false);
+            ItemStack extracted = binding.handler.extractItem(candidate.slot, amount, false);
             if (!extracted.isEmpty()) {
                 consumed += extracted.getCount();
             }
